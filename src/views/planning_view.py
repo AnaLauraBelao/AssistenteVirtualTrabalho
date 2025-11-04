@@ -30,6 +30,9 @@ class ActivitiesSelect(discord.ui.Select):
     async def callback(self, interaction: discord.Interaction):
         view: ActivitiesView = self.view  # type: ignore
 
+        if len(view.activities) <= view.limit_by_page:
+            await view.edit_button_state(custom_id="next_page", new_disabled=True)
+
         if interaction.user.id != view.author_id:
             await interaction.response.send_message(
                 "Apenas quem iniciou pode interagir com esta seleção.",
@@ -70,6 +73,38 @@ class ActivitiesSelect(discord.ui.Select):
 
         # Remove dos disponíveis
         del view.available[selected_id]
+        for activity in view.activities:
+             if activity['id'] == int(selected_id):
+                 view.activities.remove(activity)
+                 break
+
+        if len(view.activities) == 0:
+            view.remove_item(self)  # Remove o seletor da View
+            view.last_text = "Não há mais atividades disponíveis."
+            await view.finalizar_interacao(interaction)
+            return
+
+
+        start = view.limit_by_page * (view.page - 1)
+        end = view.limit_by_page * view.page
+        paginated_activities = view.activities[start:end]
+
+
+        if len(paginated_activities) < 1:
+            view.page = view.page - 1
+            start = view.limit_by_page * (view.page - 1)
+            end = view.limit_by_page * view.page
+            paginated_activities = view.activities[start:end]
+
+        if view.page > 0:
+            view.available = {str(a["id"]): a["name"] for a in paginated_activities}
+
+
+        if view.page <= 1:
+            await view.edit_button_state(custom_id="previous_page", new_disabled=True)
+
+        if view.limit_by_page * view.page >= len(view.activities):
+            await view.edit_button_state(custom_id="next_page", new_disabled=True)
 
         # Recria as opções restantes no combobox (truncando apenas o label)
         self.options = [
@@ -82,21 +117,29 @@ class ActivitiesSelect(discord.ui.Select):
 
         # Feedback e atualização da View
         resumo = f"Selecionado: {selected_name} (id: {selected_id})\n" \
-                 f"Restantes: {len(self.options)}\n" \
+                 f"Restantes: {len(view.activities)}\n" \
                  f"Selecionados até agora: {len(view.selected_ids)}"
+        view.last_text = resumo
         await interaction.response.edit_message(content=resumo, view=view)
 
 
 class ActivitiesView(discord.ui.View):
-    def __init__(self, author_id: int, activities: list[dict], timeout: float | None = 300, planning_name: str = "", day_value: str = ""):
+    def __init__(self, author_id: int, activities: list[dict], timeout: float | None = 300, planning_name: str = "", day_value: str = "", page: int = 1, last_text: str = "Selecione uma atividade no combobox. Clique em Finalizar quando terminar."):
         super().__init__(timeout=timeout)
         self.selected_tasks = {}
         self.author_id = author_id
         self.planning_name = planning_name
         self.day_value = day_value
+        self.last_text = last_text
 
         # Mapa de disponíveis e estruturas para resultados
-        self.available: dict[str, str] = {str(a["id"]): a["name"] for a in activities}
+        self.page = page
+        self.activities = activities
+        self.limit_by_page: int = 25
+        start = self.limit_by_page * (self.page - 1) if self.page > 1 else 0
+        end = self.limit_by_page * self.page
+        paginated_activities = self.activities[start:end]
+        self.available: dict[str, str] = {str(a["id"]): a["name"] for a in paginated_activities}
         self.selected_ids: list[str] = []
         self.selected_tasks: dict[str, object]
         self.selected_names_by_id: dict[str, str] = {}
@@ -105,6 +148,19 @@ class ActivitiesView(discord.ui.View):
         # Combobox inicial
         self.select = ActivitiesSelect(self.available)
         self.add_item(self.select)
+
+    async def edit_button_state(self, custom_id: str, new_label: str = None, new_disabled: bool = True):
+        # Busca o botão pelo custom_id
+        for item in self.children:
+            if isinstance(item, discord.ui.Button) and item.custom_id == custom_id:
+                # Edita as propriedades do botão
+                if new_label is not None:
+                    item.label = new_label
+                item.disabled = new_disabled
+                break
+        else:
+            raise ValueError(f"Botão com custom_id '{custom_id}' não encontrado.")
+
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         # Garante que apenas o autor interaja
@@ -116,8 +172,81 @@ class ActivitiesView(discord.ui.View):
             return False
         return True
 
+    @discord.ui.button(label="Voltar", style=discord.ButtonStyle.success, row=1, custom_id='previous_page', disabled=True)
+    async def voltar(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Incrementar a página
+        new_page = self.page - 1
+
+        start = self.limit_by_page * (new_page - 1)
+        end = self.limit_by_page * new_page
+        paginated_activities = self.activities[start:end]
+
+        await self.edit_button_state(custom_id="next_page", new_disabled=False)
+
+        previous_page = new_page -1
+        if previous_page < 0:
+            button.disabled = True
+
+        start = self.limit_by_page * (previous_page - 1)
+        end = self.limit_by_page * previous_page
+        previous_paginated_activities = self.activities[start:end]
+
+        if len(previous_paginated_activities) < 1:
+            button.disabled = True
+
+        self.page = new_page
+        self.available = {str(a["id"]): a["name"] for a in paginated_activities}
+
+        self.select.options = [
+            discord.SelectOption(label=self.select._clip(name, self.select.MAX_LABEL), value=act_id)
+            for act_id, name in self.available.items()
+        ]
+
+        await interaction.response.edit_message(content=self.last_text, view=self)
+
+    @discord.ui.button(label="Avançar", style=discord.ButtonStyle.primary, row=1, custom_id='next_page')
+    async def avancar(self, interaction: discord.Interaction, button: discord.ui.Button):
+
+        # Incrementar a página
+        new_page = self.page + 1
+
+        start = self.limit_by_page * (new_page - 1)
+        end = self.limit_by_page * new_page
+        paginated_activities = self.activities[start:end]
+        if start > len(self.activities):
+            button.disabled = True
+            await interaction.response.edit_message(content=self.last_text, view=self)
+            return
+
+        next_page = new_page + 1
+        start = self.limit_by_page * (next_page - 1)
+        end = self.limit_by_page * next_page
+        end = end if end < len(self.activities) else len(self.activities)
+        next_paginated_activities = self.activities[start:end]
+        if len(next_paginated_activities) < 1:
+            button.disabled = True
+
+        await self.edit_button_state(custom_id="previous_page", new_disabled=False)
+
+        # Atualiza o seletor com a nova página
+        self.page = new_page
+        self.available = {str(a["id"]): a["name"] for a in paginated_activities}
+
+        # Atualiza as opções do select com os novos dados
+        self.select.options = [
+            discord.SelectOption(label=self.select._clip(name, self.select.MAX_LABEL), value=act_id)
+            for act_id, name in self.available.items()
+        ]
+
+        # Re-renderiza a view
+        await interaction.response.edit_message(content=self.last_text, view=self)
+
     @discord.ui.button(label="Finalizar", style=discord.ButtonStyle.success, row=1)
     async def finalizar(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.finalizar_interacao(interaction)
+
+
+    async def finalizar_interacao(self, interaction: discord.Interaction):
         # Salva nas variáveis finais solicitadas
         self.resultados["nomes_por_id"] = dict(self.selected_names_by_id)
         self.resultados["ids"] = list(self.selected_ids)

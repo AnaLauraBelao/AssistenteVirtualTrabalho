@@ -167,22 +167,8 @@ async def create_planning_daily(interaction: discord.Interaction, day_value: str
 
     activities = get_week_tasks_by_user(user.name)['tasks']
     filtered_activities = pd.DataFrame(activities).filter(items=["id", "name"]).to_dict(orient="records")
-
-    # Exemplo de atividades. Substitua por sua fonte real.
-    # activities = [
-    #     {"id": 101, "name": "Planejamento"},
-    #     {"id": 102, "name": "Desenvolvimento"},
-    #     {"id": 103, "name": "Code Review"},
-    #     {"id": 104, "name": "Testes"}
-    # ]
-    #
-    view = ActivitiesView(author_id=interaction.user.id, activities=filtered_activities, planning_name=user.planning_name, day_value=day_value)
+    view = ActivitiesView(author_id=interaction.user.id, activities=filtered_activities, planning_name=user.planning_name, day_value=day_value, last_text="Selecione uma atividade no combobox. Clique em Finalizar quando terminar.")
     await interaction.edit_original_response(content="Selecione uma atividade no combobox. Clique em Finalizar quando terminar.", view=view)
-    # await interaction.edit_original_response(
-    #     content="Selecione uma atividade no combobox. Clique em Finalizar quando terminar.",
-    #     view=view,
-    # )
-    # await interaction.edit_original_response(content=f"Planning de {day_name} para o usuário {user.name} (ID TeamWork: {user.teamwork_user_id}) ainda não implementada.")
 
 def slugify(value: str) -> str:
     value = unicodedata.normalize('NFKD', value)

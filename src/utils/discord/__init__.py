@@ -126,34 +126,6 @@ async def planning_daily(interaction: discord.Interaction, week_day: Optional[ap
     await create_planning_daily(interaction, dia_value, dia_name)
 
 
-@tree.command(
-    name="selecionar_atividade",
-    description="Selecione uma atividade diretamente no parâmetro do comando.",
-    guild=discord.Object(id=get_secret("DISCORD_GUILD_ID"))
-)
-@app_commands.describe(atividade="Escolha uma atividade")
-@app_commands.choices(
-    atividade=[
-        app_commands.Choice(name="Segunda-Feira", value="segunda"),
-        app_commands.Choice(name="Terça-Feira", value="terça"),
-        app_commands.Choice(name="Quarta-Feira", value="quarta"),
-        app_commands.Choice(name="Quinta-Feira", value="quinta"),
-        app_commands.Choice(name="Sexta-Feira", value="sexta"),
-    ]
-)
-async def selecionar_atividade(
-        interaction: discord.Interaction,
-        atividade: app_commands.Choice[str],
-):
-    atividade_id = atividade.value          # "101", "102", ...
-    atividade_nome = atividade.name         # "Planejamento", ...
-    await interaction.response.send_message(
-        f"Você selecionou: {atividade_nome} (id: {atividade_id})",
-        ephemeral=True
-    )
-
-
-
 # @client.event
 # async def on_message(message):
 #     global notified_today, notification_task
